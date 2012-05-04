@@ -16,6 +16,8 @@
 #include "threads.h"
 #include "display.h"
 #include "debug.h"
+#include "gstClient.h"
+#include "network.h"
 
 BYTE playing = FALSE;
 BYTE authentication = FALSE;
@@ -23,9 +25,10 @@ char temp_string[BUFFER_SIZE] = {0};
 
 BYTE pause = FALSE;
 
-extern void playGst();
-
 BYTE play_track(char * buffer,int buf_len);
+
+
+int already_logged_in = FALSE;
 
 /*------------------------------------------------------------------------------
  * User Interface State Machines
@@ -71,6 +74,13 @@ void input_pin(char button_read){
     	logged_in = TRUE;
         state = WAITING_LOGGED_IN;
     	pthread_mutex_unlock(&state_Mutex);
+    	
+    	/* Launch threads on log in */
+    	if (already_logged_in == FALSE)
+	    {
+	      start_logged_in_threads();
+	      already_logged_in = TRUE;
+	    }
 
     	display_string("Welcome.",BLOCKING);
     	display_string("Enter Track Number.",NOT_BLOCKING);
@@ -79,6 +89,7 @@ void input_pin(char button_read){
     	printd("Authentication Failed\n");
         pthread_mutex_lock(&state_Mutex);
     	logged_in = FALSE;
+    	already_logged_in = FALSE;
         pthread_mutex_unlock(&state_Mutex);
     	display_string("Please Enter VALID PIN!",NOT_BLOCKING);
 
@@ -155,9 +166,14 @@ void input_track_number(char button_read){
         display_string(temp_string,BLOCKING);
 	playGst();
       }
-       else{
-        display_string("Track not found.",BLOCKING);
-      }
+      else if(playing == END_OF_PLAYLIST)
+	{
+	  display_string("End of playlist. Please select a track or playlist",BLOCKING);
+	}
+      else
+	{
+	  display_string("Track not found.",BLOCKING);
+	}
 
   	  pthread_mutex_lock(&state_Mutex);
       state = WAITING_LOGGED_IN;
@@ -167,6 +183,12 @@ void input_track_number(char button_read){
   	  //display timing info
     }
     break;
+
+
+  case DELETE:
+    delete_char();
+    if (input_len)
+      break;
 
   case CANCEL:
     reset_buffers();
@@ -185,9 +207,6 @@ void input_track_number(char button_read){
     move_cursor(LEFT);
     break;
 
-  case DELETE:
-    delete_char();
-    break;
 
   case ENTER_MENU:
     if (input_len == 0)

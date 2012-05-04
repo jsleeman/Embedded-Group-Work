@@ -33,6 +33,8 @@
 #include "threads.h"
 #include "debug.h"
 
+extern char closest_mac[MAC_LEN];
+
 char * emergMsg;
 
 char task;
@@ -51,8 +53,16 @@ char packet[PACKETLEN] = {0};
 char opcode;
 int sentt = 0;
 int follower;
-
+char playcode = '0';
+char reqCode = '0';
 char * msg;
+char clMac[MAC_LEN];
+
+void * gstMulti()
+{
+  system("gst-launch udpsrc multicast-group=224.0.0.1 port=12000 ! 'application/x-rtp,media=(string)audio, clock-rate=(int)44100, width=16,height=16, encoding-name=(string)L16, encoding-params=(string)1, channels=(int)1, channel-positions=(int)1, payload=(int)96' ! gstrtpjitterbuffer do-lost=true ! rtpL16depay ! audioconvert ! alsasink sync=false");
+}
+
 
 
 /*****************************************************************************************
@@ -84,8 +94,13 @@ void * networkingFSM(void)
 	  pthread_mutex_lock(&network_Mutex);
 	  pthread_cond_wait(&network_Signal, &network_Mutex);
 	  opcode = task;
-	  strncpy(localRecPacket, receivedPacket, PACKETLEN);
+	  strncpy(clMac, closest_mac, MAC_LEN);
+	  strncpy(localRecPacket, receivedPacket, MAC_LEN);
+	  reqCode = playcode;
 	  pthread_mutex_unlock(&network_Mutex);
+	  
+	  if (alive == FALSE)
+	    break;              /* If the signal to die comes, then actually die! */
 	  
 	  if (opcode == RECEIVE)
 	    {
@@ -184,19 +199,21 @@ int networkSetup()
     {
 
       if ((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) 
-	{
-	  perror("client: socket");
-	  continue;
-	}
-      
-      if (connect(sockfd, p->ai_addr, p->ai_addrlen) == -1) 
-	{
-	  close(sockfd);
-	  perror("client: connect");
-	  continue;
-	}
+	    {
+	      perror("client: socket");
+	      continue;
+	    }
+          
+          if (connect(sockfd, p->ai_addr, p->ai_addrlen) == -1) 
+	    {
+	      close(sockfd);
+	      perror("client: connect");
+	      continue;
+	    }
       break;
     }
+    
+    
   if (p == NULL) 
     {
       //  fprintf(stderr, "client: failed to connect\n");
@@ -225,11 +242,11 @@ void * receive(void)
     {
       char buffer[MAXDATASIZE];
       if ((numbytes = recv(sockfd, buffer, MAXDATASIZE-1, 0)) == -1) // Blocking if statement
-	{
-	  perror("recv");
-	  alive = FALSE;
-	  break;
-	}
+	    {
+	      perror("recv");
+	      alive = FALSE;
+	      break;
+	    }
 
       printd("Packet received: %s\n", buffer);      
       buffer[numbytes] = '\0';
@@ -258,6 +275,8 @@ int parsePacket(char * buffer)
   extern pthread_attr_t gst_control_Attr;
   extern pthread_t gst_control_thread;
   extern void * gst(int port, char ip[]);
+
+  extern int mac_changed;
 
   static int timeout = TIMEOUTVALUE;
   int state = 1;
@@ -299,6 +318,10 @@ int parsePacket(char * buffer)
 	  free(tmp);
           break;
 
+  //10  unauthenticated
+  //110 indiv
+  //111 leader
+  //112 follower
 
 	case PIN: //format: 111,port.ip
 	  printd("buffer[1]:%c\n",buffer[1]);
@@ -310,7 +333,7 @@ int parsePacket(char * buffer)
 	      tmp = (char*) malloc(1); 
 	      tmp[0] = buffer[2];
 
-	      follower = atoi(tmp); 
+	      follower = atoi(tmp); //Follower: 0 = Indiv, 1= Follower ,2=Leader
 	      
 	      /*Copy out Port*/
 	      i = 3;
@@ -338,7 +361,8 @@ int parsePacket(char * buffer)
 	      set_ip_and_port(ipGst,portGst);
 	      
 	  /* Starts the gstreamer thread and passes the IP and port*/
-	      if(pthread_create( &gst_control_thread, &gst_control_Attr, (void *)gst, NULL) != 0)
+	      //   if(pthread_create( &gst_control_thread, &gst_control_Attr, (void *)gst, NULL) != 0)
+	      if(pthread_create( &gst_control_thread, &gst_control_Attr, (void *)gstMulti, NULL) != 0)
 		{
 	      perror("Network thread failed to start\n");
 	      exit(EXIT_FAILURE);
@@ -372,6 +396,14 @@ int parsePacket(char * buffer)
 	      pthread_cond_signal(&request_Signal);
 	      pthread_mutex_unlock(&request_Mutex);
 	    }
+	  if (buffer[1] == END_OF_PLAYLIST)
+	    {
+	      printd("End of playlist reached");
+	      pthread_mutex_lock(&request_Mutex);
+	      data[0] = END_OF_PLAYLIST;
+	      pthread_cond_signal(&request_Signal);
+	      pthread_mutex_unlock(&request_Mutex);
+	    }
 	  break;
 
         case TRACKINFO:
@@ -383,7 +415,18 @@ int parsePacket(char * buffer)
        
          case ACK: /* Do nothing */
           printd("%s", buffer);
-          state = WAITING;
+	  if (mac_changed == 1)
+	    {
+	      mac_changed = 0;
+	      reqCode = CLOSEST_MAC_ADDRESS;
+	      state = CREATEHEADERS;
+	      opcode = PLAY;
+	      
+	    }
+	  else
+	    {
+	      state = WAITING;
+	    }
           break;
         
 	case NAK: /* Resends last packet */
@@ -430,6 +473,12 @@ int parsePacket(char * buffer)
 int createPacket(char * localData)
 {
 
+  //21 - play track only - client sent
+  //22 - play playlist - client sent
+  //23 - finished indiv track, will send ack - client sent
+  //24 - finished track in playlist - client sent
+  //25 - End of playlist - server sent
+  //26 - Send new mac address
 
   bzero(packet, PACKETLEN); // Clears the packet
 
@@ -445,6 +494,16 @@ int createPacket(char * localData)
 	{
 	  return  WAITING;
 	}
+      
+      if (reqCode == CLOSEST_MAC_ADDRESS)
+	{
+	  sprintf(packet, "%c%c%s\n", opcode, reqCode, clMac);
+	}
+
+      sprintf(packet, "%c%c%s\n", opcode, reqCode, localData); // request packet, 
+ 
+      break;
+
     case TRACKINFO:
       sprintf(packet, "%c%s\n", opcode, localData); // request packet, used for play and track info
       break;
@@ -461,8 +520,8 @@ int createPacket(char * localData)
   return SEND;
 }
 
-
 int getFollower()
 {
   return follower;
 }
+

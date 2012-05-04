@@ -16,6 +16,7 @@
 #include "display.h"
 #include "debug.h"
 
+int cont = 0;
 
 /**
  *  @brief Menu selection routine.
@@ -60,9 +61,10 @@ void menu_select(void){
     /* If button has been pressed, but an emergency packet has arrived,
      * check for it and respond by breaking out of the loop.
      */
-	pthread_mutex_lock(&state_Mutex);
-	state_read = state;
-	pthread_mutex_unlock(&state_Mutex);
+	  pthread_mutex_lock(&state_Mutex);
+	  state_read = state;
+	  pthread_mutex_unlock(&state_Mutex);
+    
     if(state_read == EMERGENCY || alive == FALSE){
       set_menu(FALSE); // in display.c
       break; // Get out if there's an emergency
@@ -97,25 +99,42 @@ void menu_select(void){
 
 		  case LOCATION:
 		    //Request Location Information
-	        //wifi_scan();
+		    
+		    
 		    break;
 
           case SCROLL:
             break;
 
           case PLAYBACK:
+	    if (cont)
+	      {
+		cont = 0;
+		display_string(" Mode set to continuousplay only one track at a time",BLOCKING);
+	      }
+	    else
+	      {
+		cont = 1;
+		display_string(" Mode set to continuous",BLOCKING);
+	      }
+	    
             break;
 
-		  case LOG_OUT:
-            set_menu(FALSE);
-            reset_buffers();
-		    display_string(" Goodbye ",BLOCKING);
-		    pthread_mutex_lock(&state_Mutex);
-	        logged_in = FALSE;
-            state = INIT_STATE;
-            state_read = state;
-            pthread_mutex_unlock(&state_Mutex);
-            printd("Logging Out\n");
+	    case LOG_OUT:
+	      {
+		set_menu(FALSE);
+		reset_buffers();
+		display_string(" Goodbye ",BLOCKING);
+	
+		pthread_mutex_lock(&state_Mutex);
+		logged_in = FALSE;
+		already_logged_in = FALSE;
+          state = INIT_STATE;
+          state_read = state;
+          pthread_mutex_unlock(&state_Mutex);
+  
+          printd("Logging Out\n");
+        }
 		    break;
 
 		  case EXIT_PROG:
@@ -184,3 +203,11 @@ void show_choice(int choice){
 
   return;
 }
+
+int continous()
+{
+  return cont;
+}
+/*gst-launch filesrc location=/home/netlab/jcsleema/Beethoven_Moonlight_2nd_movement.ogg ! oggdemux ! vorbisdec ! audioconvert ! audio/x-raw-int,channels=1,depth=16,width=16,rate=44100 ! rtpL16pay ! udpsink host=224.0.0.2 port=12000
+
+  gst-launch udpsrc multicast-group=224.0.0.2 port=12000 ! "application/x-rtp,media=(string)audio, clock-rate=(int)44100, width=16,height=16, encoding-name=(string)L16, encoding-params=(string)1, channels=(int)1, channel-positions=(int)1, payload=(int)96" ! gstrtpjitterbuffer do-lost=true ! rtpL16depay ! audioconvert ! alsasink sync=false*/
