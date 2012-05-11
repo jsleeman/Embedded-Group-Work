@@ -37,7 +37,7 @@ static struct file operations usbPioFops =
     .write = usbPioWrite,      /* Write Method*/ 
     .ioctl = usbPioIoctl,       /* Ioctl Method*/
     .open = usbPioOpen,        /* Open Method*/
-    .release = usbPioRelsease, /* Release Method*/
+    .release = usbPioRelease, /* Release Method*/
   };
 
 static struct usb_class_driver usbPioClass = 
@@ -50,5 +50,18 @@ static struct usb_class_driver usbPioClass =
 typedef struct 
 {
   struct usb_device *usbdev;
-  
+  struct usb_ctrlrequest ctrlReq;
+  unsigned char *bulkInBuffer;
+  unsigned char *bulkOutBuffer;
+  size_t bulkBufferSize;
+  __u8 bulkInAddr;
+  __u8 bulkOutAddr;
+  unsigned char *userBuffer;
 } usbPioDevice;
+
+
+   
+        
+  
+
+ 
