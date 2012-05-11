@@ -19,6 +19,7 @@ static int usbPioInit()
       printk("Error: USB failed to reigster, error number : %d", result);
     }
   printk("Successfully registered USB, result number : %d", result);
+  return result;
 }
 
 static int usbPioExit()

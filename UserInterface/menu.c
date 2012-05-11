@@ -106,7 +106,7 @@ void menu_select(void){
           case SCROLL:
             break;
 
-          case PLAYBACK:
+	    case PLAYBACK: /*  MOVE CODE BELOW?!?!?! or NO???*/
 	    if (cont)
 	      {
 		cont = 0;

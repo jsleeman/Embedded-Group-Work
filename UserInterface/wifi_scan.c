@@ -125,5 +125,3 @@ void * wifi_scan(void)
  
   pthread_exit(0);
 }
-
-
