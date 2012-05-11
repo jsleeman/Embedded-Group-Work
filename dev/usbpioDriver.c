@@ -97,8 +97,6 @@ static int usbPioRelsease(struct inode *inode, struct file *file)
   return 0;
 }
 
-
-
 /* Sources: Essential Linux Device Drivers 
             http://www.cems.uwe.ac.uk/~cduffy/dwd/usbpio.pdf
 	    http://www.cems.uwe.ac.uk/~cduffy/lkmpg.pdf
