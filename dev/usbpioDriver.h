@@ -7,11 +7,12 @@ static int usbPioInit();
 static int usbPioExit();
 static int usbPioProbe(struct usb_interface *interface, const struct usb_device_id *id);
 static void usbPioDisconnect(struct usb_interface *interface);
-usbPioRead();
-usbPioWrite();
-usbPioIoctl();
-static int usbPioOpen();
+static ssize_t usbPioRead(struct file *file, char __user *buffer, size_t count, loff_t *ppos);
+static ssize_t usbPioWrite(struct file *file, const char __user *user_buffer, size_t count, loff_t *ppos);
+static int usbPioOpen(struct inode *inode, struct file *file);
 static int usbPioRelsease(struct inode *inode, struct file *file);
+static void usbPioWriteCallBack(struct urb *urb)
+static void usbOioKeypadReadCallBack(struct urb *urb)
 
 static struct usb_device_id usbPioKeypadIdTable = 
   {

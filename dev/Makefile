@@ -1,7 +1,7 @@
 ARCH=arm
 CC=/home/netlab/jclseema/year3/buildroot/output/host/usr/bin/arm-unknown-linux-uclibcgnueabi-gcc
-obj-m := usbPioKeypad.o
-KDIR := /home/netlab/jclseema/year3/buildroot/output/build/linux-
+obj= usbPioKeypad.o
+KDIR= /home/netlab/jclseema/year3/buildroot/output/build/linux-
 
 all:
 
