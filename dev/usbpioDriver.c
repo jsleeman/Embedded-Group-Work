@@ -10,7 +10,7 @@ MODULE_DESCRIPTION("USB - PIO Driver, Sets up the connection offers reading and 
 
 static int usbPioInit()
 {
-  int result;
+  int result = -1;
   
   printk("Initialising USB PIO driver\n");
   result = usb_register(&usbPioKeypadDriver);
@@ -24,8 +24,10 @@ static int usbPioInit()
 
 static int usbPioExit()
 {
+  int result = 0;
   printk("About to deregister the driver\n");
   usb_deregister(&usbPioKeypadDriver);
+  return result;
 }
 
 module_init(usbPioInit);
@@ -87,16 +89,6 @@ static int usbPioProbe(struct usb_interface *interface, const struct usb_device_
   printk("%s now attached\n", usbPioDevice.name);
   return 0;
   
-}
-
-static void usbPioDisconnect(struct usb_interface *interface)
-{
-  printk("usbPioDisconnect");
- usbPioDeviceT usbPioDevice;
-
- usb_set_intfdata(interface, NULL);
- 
-
 }
 
 static int usbPioRelsease(struct inode *inode, struct file *file)
@@ -198,7 +190,7 @@ static ssize_t usbPioRead(struct file *file, char __user *buffer, size_t count, 
 		      usbPioReadCallBack,
 		      usbPioDevice);
 
-    retval = usb_submit_urb(usbPioDevice->ctrl_urb, GFP_ATOMIC)
+    retval = usb_submit_urb(usbPioDevice->ctrl_urb, GFP_ATOMIC);
     if (retval)
       {
 	printk(KERN_ALERT "Error: failed to submit the URB, error number: %d", retval);
@@ -281,7 +273,7 @@ static void usbOioKeypadReadCallBack(struct urb *urb)
   }
 
   /* Copy to userspace */
-  copy_to_user(com_details->user_buffer, buf, urb->actual_length);
+  copy_to_user(usbPioDevice->user_buffer, buf, urb->actual_length);
  
   /* free up our allocated buffer */
   usb_free_coherent(urb->dev, urb->transfer_buffer_length,
