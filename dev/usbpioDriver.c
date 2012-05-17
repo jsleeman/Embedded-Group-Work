@@ -23,12 +23,10 @@ static int usbPioInit()
   return result;
 }
 
-static int usbPioExit()
+void usbPioExit()
 {
-  int result = 0;
   printk("About to deregister the driver\n");
   usb_deregister(&usbPioKeypadDriver);
-  return result;
 }
 
 module_init(usbPioInit);
@@ -39,26 +37,25 @@ static int usbPioProbe(struct usb_interface *interface, const struct usb_device_
   int i, retval = -ENOMEM;
   struct usb_host_interface *ifaceDesc;
   struct usb_endpoint_descriptor *endpoint;
-  struct usb_device *usb_dev;
-  usbPioDeviceT usbPioDevice;
+  usbPioDeviceT *usbPioDevice;
 
   printk("Starting usbPioProbe\n");  
-  usbPioDevice = kzalloc(sizeof(usbPioDevice), GFP_KERNEL);
+  usbPioDevice = kzalloc(sizeof(usbPioDeviceT), GFP_KERNEL);
 
-  usbPioDevice->usbdev = usb_get_dev(interface_to_usbdev(interface));
+  usbPioDevice->usbDev = usb_get_dev(interface_to_usbdev(interface));
   usbPioDevice->interface = interface;
 
-  iface_desc = interface->cur_altsetting;
+  ifaceDesc = interface->cur_altsetting;
   
-  printk(KERN_ALERT "%d Endpoints found" , ifaceDesc.desc.bNumEndpoints);
-  for(i=0; i<ifaceDesc.desc.bNumEndpoints; i++)
+  printk(KERN_ALERT "%d Endpoints found" , ifaceDesc->desc.bNumEndpoints);
+  for(i=0; i < ifaceDesc->desc.bNumEndpoints; i++)
     {
       endpoint = &ifaceDesc->endpoint[i].desc;
 
       /* Sets up end point for input*/
-      if(!usbPioDevice->bulkInAddr && usb_endpoint_bulk_in(endpoint))
+      if(!usbPioDevice->bulkInAddr && usb_endpoint_is_bulk_in(endpoint))
 	{
-	  usbPioDevice->bulkInLen = le16_to_cpu(endpoint->wMaxPacket);
+	  usbPioDevice->bulkInLen = le16_to_cpu(endpoint->wMaxPacketSize);
 	  usbPioDevice->bulkInAddr = endpoint->bEndpointAddress;
 	  usbPioDevice->bulkInBuffer = kmalloc(usbPioDevice->bulkInLen, GFP_KERNEL);
 	  printk(KERN_ALERT "Endpoint %d is a bulk in endpoint\n", i);
@@ -75,24 +72,24 @@ static int usbPioProbe(struct usb_interface *interface, const struct usb_device_
 
   if(usbPioDevice->bulkInAddr && usbPioDevice->bulkOutAddr)
     {
-      return reval;
-    }
-
-  usb_set_intfdata(interface, usbPioDevice);
-  retval = usb_register_dev(interface, &usbPioDevice);
-  if (retval)
-    {
-      usb_set_intfdata(interface, NULL);
-      printk(KERN_ALERT "%s could not be attached\n", usbPioDevice.name);
       return retval;
     }
 
-  printk("%s now attached\n", usbPioDevice.name);
+  usb_set_intfdata(interface, usbPioDevice);
+  retval = usb_register_dev(interface, &usbPioClass);
+  if (retval)
+    {
+      usb_set_intfdata(interface, NULL);
+      printk(KERN_ALERT "%s could not be attached\n", usbPioKeypadDriver.name);
+      return retval;
+    }
+
+  printk("%s now attached\n", usbPioKeypadDriver.name);
   return 0;
   
 }
 
-static int usbPioRelsease(struct inode *inode, struct file *file)
+static int usbPioRelease(struct inode *inode, struct file *file)
 {
   printk("Starting usbPioRelease\n");
   return 0;
@@ -111,8 +108,8 @@ static int usbPioRelsease(struct inode *inode, struct file *file)
 
 static void usbPioDisconnect(struct usb_interface *interface)
 {
-  printk("Starting usbPioDisconnect\n");
   usbPioDeviceT *usbPioDevice;
+  printk("Starting usbPioDisconnect\n");
     
   /*Retrieve data saved with usb_set_intfdata - Free memory*/
   usbPioDevice = usb_get_intfdata(interface); //TODO Free memory
@@ -128,10 +125,10 @@ static void usbPioDisconnect(struct usb_interface *interface)
 
 static int usbPioOpen(struct inode *inode, struct file *file)
 {
-  printk("Starting UsbPioOpen");
-
   usbPioDeviceT *usbPioDevice;
   struct usb_interface *interface;
+
+  printk("Starting UsbPioOpen");
 
   /* Get the interface the device is associated with */
   interface = usb_find_interface(&usbPioKeypadDriver, iminor(inode));
@@ -151,30 +148,32 @@ static int usbPioOpen(struct inode *inode, struct file *file)
     }
 
   /* Saves the device specific object for use with read and write*/
-  file->privatDeviceT *usbPioDevice;
+  file->private_data = usbPioDevice;
+
+  return 0;
 }
 
 static ssize_t usbPioRead(struct file *file, char __user *buffer, size_t count, loff_t *ppos)
 {
-  printk("starting usbPioRead\n");
-    
   int retval;
   usbPioDeviceT *usbPioDevice;
   struct urb *urb;
   char *dma_buffer;
+
+  printk("Starting UsbPioOpen");
     
   /* Get the address of the device, data saved in open */
   usbPioDevice = (usbPioDeviceT *)file->private_data;
 
   /* Allocate some mem for the URB*/
-  urb = urb_alloc_urb(0, GFP_KERNEL);
+  urb = usb_alloc_urb(0, GFP_KERNEL);
   if (!urb)
     {
       printk(KERN_ALERT "Memory allocation for the URB failed\n");
       return -ENOMEM;
     }
     
-  dma_buffer = usb_alloc_coherent(usbPioDevice->usbDev, usbPioDevice->inBulkBufferSize, GFP_KERNEL, &urb->transfer_dma);
+  dma_buffer = usb_alloc_coherent(usbPioDevice->usbDev, usbPioDevice->bulkInLen, GFP_KERNEL, &urb->transfer_dma);
   if (!dma_buffer)
     {
       printk(KERN_ALERT "Error: failed to allocate mem for usb dma buffer\n");
@@ -184,6 +183,7 @@ static ssize_t usbPioRead(struct file *file, char __user *buffer, size_t count, 
   /*Init the urb*/
   usb_fill_bulk_urb(urb,
 		    usbPioDevice->usbDev,
+		    usb_sndbulkpipe(usbPioDevice->usbDev,usbPioDevice->bulkOutAddr),
 		    dma_buffer,
 		    count,
 		    usbPioReadCallBack,
@@ -201,19 +201,19 @@ static ssize_t usbPioRead(struct file *file, char __user *buffer, size_t count, 
 
 static ssize_t usbPioWrite(struct file *file, const char __user *user_buffer, size_t count, loff_t *ppos)
 {
-  printk("Starting usbPioWrite");
-    
   size_t bufferSize = count;
   char *dmaBuffer; /*used for usb_buffer_alloc*/
   struct urb *urb;
-  struct usbPioDeviceT *usbPioDevice;
+  usbPioDeviceT *usbPioDevice;
   int retval;
+
+  printk("Starting UsbPioOpen");
 
   /* Get the address of the device, data saved in open */
   usbPioDevice = (usbPioDeviceT *)file->private_data;
 
   /* Allocate some mem for the URB*/
-  urb = urb_alloc_urb(0, GFP_KERNEL);
+  urb = usb_alloc_urb(0, GFP_KERNEL);
   if (!urb)
     {
       printk(KERN_ALERT "Memory allocation for the URB failed\n");
@@ -221,7 +221,7 @@ static ssize_t usbPioWrite(struct file *file, const char __user *user_buffer, si
     }
     
   /* sets up the dma*/
-  dmaBuffer = usb_alloc_coherent(usbPioDevice->usbDev, usbPioDevice->inBulkBufferSize, GFP_KERNEL, &urb->transfer_dma);
+  dmaBuffer = usb_alloc_coherent(usbPioDevice->usbDev, usbPioDevice->bulkInLen, GFP_KERNEL, &urb->transfer_dma);
   if (!dmaBuffer)
     {
       printk(KERN_ALERT "Error: failed to allocate mem for usb dma buffer\n");
@@ -231,9 +231,22 @@ static ssize_t usbPioWrite(struct file *file, const char __user *user_buffer, si
   /* Copies the data from userland to kernel land */
   if(copy_from_user(dmaBuffer, user_buffer, bufferSize))
     {
-      printk(KERN_ALERT"Error: Failed to copy data from user land to the DMA buffer, error number: %d", retval);
+      printk(KERN_ALERT"Error: Failed to copy data from user land to the DMA buffer");
       return-EFAULT;
     }
+
+  //init the urb
+  usb_fill_bulk_urb(urb, 
+		    usbPioDevice->usbDev,
+		    usb_sndbulkpipe(usbPioDevice->usbDev,usbPioDevice->bulkOutAddr),
+		    dmaBuffer,
+		    count, 
+		    usbPioWriteCallBack,
+		    usbPioDevice);
+
+  /* urb->transfer_dma is valid, so preferably utilize
+     that for data transfer */
+  urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
     
   retval = usb_submit_urb(urb, GFP_KERNEL);
   if(retval)
@@ -260,7 +273,7 @@ static void usbPioReadCallBack(struct urb *urb)
   char *buf;
   usbPioDeviceT *usbPioDevice;
 
-  usbPioDevice = (struct usbPioDeviceT*)urb->context;
+  usbPioDevice = (usbPioDeviceT*)urb->context;
 
   /*Print what is returned the read urb*/
   buf = (char *)urb->transfer_buffer;
@@ -272,10 +285,13 @@ static void usbPioReadCallBack(struct urb *urb)
     }
 
   /* Copy to userspace */
-  copy_to_user(usbPioDevice->user_buffer, buf, urb->actual_length);
- 
-  /* free up our allocated buffer */
-  usb_free_coherent(urb->dev, urb->transfer_buffer_length,
-		    urb->transfer_buffer, urb->transfer_dma);
+  if (copy_to_user(usbPioDevice->userBuffer, buf, urb->actual_length) != 0)
+    {
+      printk(KERN_ALERT "Failed to copy data back to userland");
+    }
+  else
+    {
+      /* free up our allocated buffer */
+      usb_free_coherent(urb->dev, urb->transfer_buffer_length, urb->transfer_buffer, urb->transfer_dma);
+    }
 }
-
